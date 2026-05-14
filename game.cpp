@@ -1,191 +1,155 @@
 #include "game.h"
-#include "collision.h"
-#include "attack.h"
+#include "individual.h"
+
 #include <QRect>
-#include <QPainter>
 #include <QKeyEvent>
+#include <QPushButton>
 
 Game::Game(QWidget *parent):
     QWidget(parent)
-    , m_playerVelocity(0)
-    , m_playerHorizon(8)
-    , m_isJumping(false)
-    , m_isRMove(false)
-    , m_isLMove(false)
-    , m_gameOver(false)
-    , m_jumptime(0)
-    , m_score(0)
-    , direction(1)
-    , m_isAttacking(false)
-    , m_attackDuration(15)
-    , is_skill_1(false)
 {
+    is_start_interface = true;
+    btn_start = new QPushButton("开始游戏", this);
+    btn_start->setGeometry(400, 300, 220, 70);
+    btn_start->setStyleSheet(R"(
+        QPushButton{
+            background-color:#ffcc00;
+            color:#000;
+            font-size:26px;
+            font-weight:bold;
+            border:none;
+        }
+        QPushButton:hover{
+            background-color:#ffdd33;
+        }
+    )");
+    connect(btn_start, &QPushButton::clicked, this, [=](){
+        is_start_interface = false;
+        btn_start->hide();
+    });
+
+    btnRestart = new QPushButton("重新开始", this);
+    btnRestart->setGeometry(GAME_WIDTH - 120, 10, 110, 30);
+    connect(btnRestart, &QPushButton::clicked, this, &Game::resetGame);
+    btnRestart->hide();
+
+    //按钮-"显示攻击框/隐藏攻击框"
+    btnShowAtkBox = new QPushButton("显示攻击框", this);
+    btnShowAtkBox->setGeometry(GAME_WIDTH - 240, 10, 110, 30);
+    connect(btnShowAtkBox, &QPushButton::clicked, this,
+            [=](){
+                m_drawAttackBox = !m_drawAttackBox;
+
+                if(m_drawAttackBox)
+                    btnShowAtkBox->setText("隐藏攻击框");
+                else
+                    btnShowAtkBox->setText("显示攻击框");
+                update();
+            });
+    btnShowAtkBox->hide(); // 初始隐藏
+
+    //创建页面
     setFixedSize(GAME_WIDTH, GAME_HEIGHT);
-    setWindowTitle("造梦西游Qt简易版");
+    setWindowTitle("造梦西游");
+    creat();
 
-    setStyleSheet("background-color: #f5f5f5;");
-
-    m_player = QRect(100, GAME_HEIGHT - GROUND_HEIGHT - PLAYER_HEIGHT,
-                     PLAYER_WIDTH, PLAYER_HEIGHT);
-
-    m_attackRect = QRect(0, 0, 0, 0);
+    //游戏设置帧数
     m_gameTimerId = startTimer(15);
-    m_playerPixmap_stand = QPixmap("stand.png");
-    m_playerPixmap_jump = QPixmap("jump.png");
-    m_playerPixmap_run = QPixmap("run.png");
-    m_playerPixmap_run = QPixmap("run.png");
-    m_obstaclePixmap = QPixmap("obstacle.png");
-    m_playerPixmap_skill1 = QPixmap("skill1.png");
-    creatobstacle();
+
+    //导入图片
+    role_img = QPixmap("resources/ui/role.png");
+    m_obstaclePixmap = QPixmap("resources/bg/obstacle.png");
+    m_groundPixmap = QPixmap("resources/bg/ground.png");
+    m_playerPixmap_stand = QPixmap("resources/player/stand.png");
+    m_playerPixmap_jump = QPixmap("resources/player/jump.png");
+    m_playerPixmap_skill1 = QPixmap("resources/player/skill1.png");
+    m_playerPixmap_jump=QPixmap("resources/player/jump1.png");
+    hurt_img=QPixmap("resources/player/hurt_img.png");
+    m_playerPixmap_jump6=QPixmap("resources/player/jump6.png");
+    m_evil_run=QPixmap("resources/enemy/evil_stand.png");
+    m_evil_stand=QPixmap("resources/enemy/evil_stand.png");
+    m_evil_jump=QPixmap("resources/enemy/evil_stand.png");
+    evil_hurt_img=QPixmap("resources/enemy/evil_hurt_img.png");
+
+
 }
 
-void Game::paintEvent(QPaintEvent *event)
-{
-    Q_UNUSED(event);
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing);
-    static QPixmap bg("background.png");
-    painter.drawPixmap(0, 0, GAME_WIDTH, GAME_HEIGHT, bg);
-
-    for (const auto& obstacle : m_obstacles) {
-
-        painter.drawPixmap(obstacle.x()- m_cameraX, obstacle.y(),
-                           obstacle.width(), obstacle.height(), m_obstaclePixmap);
-    }
-    for (const auto& obstacle : m_bound) {
-        painter.drawPixmap(obstacle.x()- m_cameraX, obstacle.y(),
-                           obstacle.width(), obstacle.height(), m_obstaclePixmap);
-    }
-    bool isOnObstacle = false;
-    for(const auto &obstacle : m_obstacles) {
-        if (m_player.bottom() >= obstacle.top()
-            && m_player.bottom() <= obstacle.top() + 4
-            && m_player.right() > obstacle.left()
-            && m_player.left() < obstacle.right())
-        {
-            isOnObstacle = true;
-            break;
-        }
-    }
-    QRect drawPlayer = m_player.translated(-m_cameraX, 0);
-    if (direction == 1)
-    {
-        if(is_skill_1){
-            painter.drawPixmap(drawPlayer.left()-50,drawPlayer.top()
-                               ,200,80 ,m_playerPixmap_skill1);}
-        else{
-            if(!isOnObstacle){
-                painter.drawPixmap(drawPlayer, m_playerPixmap_jump);
-            }
-            else{
-                if(!m_isRMove){
-                    painter.drawPixmap(drawPlayer, m_playerPixmap_stand);}
-                else{painter.drawPixmap(drawPlayer, m_playerPixmap_run);}
-            }
-        }
-    }
-    else {
-        QTransform transform;
-        transform.scale(-1, 1);
-        if(is_skill_1){
-            QPixmap flipped = m_playerPixmap_skill1.transformed(transform);
-            painter.drawPixmap(drawPlayer.left()-170,drawPlayer.top()
-                               ,200,80,flipped);}
-        else{
-            if(!isOnObstacle){
-                QPixmap flipped = m_playerPixmap_jump.transformed(transform);
-                painter.drawPixmap(drawPlayer, flipped);
-            }
-            else{
-                if(!m_isLMove){
-                    QPixmap flipped = m_playerPixmap_stand.transformed(transform);
-                    painter.drawPixmap(drawPlayer, flipped);
-                }
-                else{
-                    QPixmap flipped = m_playerPixmap_run.transformed(transform);
-                    painter.drawPixmap(drawPlayer, flipped);
-                }
-            }
-        }
-    }
-
-
-    if (m_isAttacking)
-    {
-        painter.setBrush(QColor(255, 0, 0));
-        painter.setPen(QPen(QColor(200, 0, 0), 2));
-        QRect drawAttackRect = m_attackRect.translated(-m_cameraX, 0);
-        painter.drawRect(drawAttackRect);
-    }
-}
-
+//松开按键触发事件
 void Game::keyReleaseEvent(QKeyEvent *event)
 {
+    if(is_start_interface) return;
+
     if(event->key() == Qt::Key_D ) {
-        m_isRMove = false;
+        player.m_isRMove = false;
     }
     if(event->key() == Qt::Key_A ) {
-        m_isLMove = false;
+        player.m_isLMove = false;
     }
 }
-
+//按压按键触发事件
 void Game::keyPressEvent(QKeyEvent *event)
 {
-    if (m_gameOver) {
-        if (event->key() == Qt::Key_R) {
-            resetGame();
-        }
-        return;
-    }
-
-    bool isOnObstacle = false;
-    for(const auto &obstacle : m_obstacles) {
-        if (m_player.bottom() >= obstacle.top()
-            && m_player.bottom() <= obstacle.top() + 4
-            && m_player.right() > obstacle.left()
-            && m_player.left() < obstacle.right())
-        {
-            isOnObstacle = true;
-            break;
-        }
-    }
+    if(is_start_interface) return;
 
     switch (event->key()) {
+    //移动
     case Qt::Key_D:
-        m_isRMove = true;
-        direction = 1;
-        m_playerHorizon = 3;
+        player.m_isRMove = true;
+        player.direction = 1;
+        player.m_playerHorizon = 4;
         break;
     case Qt::Key_A:
-        m_isLMove = true;
-        direction = 2;
-        m_playerHorizon = 3;
+        player.m_isLMove = true;
+        player.direction = 2;
+        player.m_playerHorizon = 3;
         break;
+    //攻击
     case Qt::Key_J:
-    {   m_isAttacking=true;
-        variabletime=m_attackDuration;
-        attack att;
-        att.attacking(m_player,direction, m_attackRect);
+        if(!player.m_attacked){
+            // 连击：1→2→3→4，间隔<65帧（动画播完也能连）
+            if (player.m_attackStage < 4
+                && m_gameTick - player.last_j_tick < 65 && player.last_j_tick > 0)
+            {
+                player.m_attackStage++;
+                if (player.m_attackStage == 2) {
+                    player.attack2_index = 0;
+                    player.attack2_frame_timer = 0;
+                } else if (player.m_attackStage == 3) {
+                    player.attack3_index = 0;
+                    player.attack3_frame_timer = 0;
+                } else if (player.m_attackStage == 4) {
+                    player.attack4_index = 0;
+                    player.attack4_frame_timer = 0;
+                }
+            } else {
+                player.m_attackStage = 1;
+            }
+            player.last_j_tick = m_gameTick;
+            player.m_isAttacking = true;
+            player.variabletime = player.m_attackDuration;
+        }
         break;
-    }
+    //跳跃
     case Qt::Key_K:
-    {
-        if (isOnObstacle && m_jumptime == 0) {
-            m_isJumping = true;
-            m_jumptime = 1;
+        if (player.check_onground(m_obstacles) && player.m_jumptime == 0) {
+            player.m_isJumping = true;
+            player.m_jumptime = 1;
         }
-        else if (!isOnObstacle && m_jumptime == 1) {
-            m_isJumping = true;
-            m_jumptime = 2;
+        else if (!player.check_onground(m_obstacles) && player.m_jumptime == 1) {
+            player.m_isJumping = true;
+            player.m_jumptime = 2;
         }
         break;
-    }
+    //技能1
     case Qt::Key_U:
-    {   is_skill_1=true;
-        time1=m_attackDuration;
+        if (!player.is_skill_1 && player.skill_cd == 0 &&player.mp >= 10 &&!player.m_attacked)
+        {
+            player.is_skill_1 = true;
+            player.time1 =player. skill_1_time;
+            player.mp -= 20;
+            player.skill_direction = player.direction;  // 锁定冲刺方向
+        }
         break;
-    }
-
     default:
         break;
     }
@@ -193,137 +157,137 @@ void Game::keyPressEvent(QKeyEvent *event)
 
 void Game::timerEvent(QTimerEvent *event)
 {
-    if (event->timerId() != m_gameTimerId || m_gameOver) {
-        return;
-    }
+    if(is_start_interface) return;
 
-    QRect newPlayerRect = m_player;
+    m_gameTick++;
 
-    newPlayerRect = m_player;
-    m_playerVelocity += GRAVITY;
+    //玩家
+    player.move(m_obstacles);
+    player.attack();
+    player.attacked();
 
-    if (m_isJumping) {
-        if (m_jumptime == 1) {
-            m_playerVelocity = -JUMP_FORCE1;
-        }
-        if (m_jumptime == 2) {
-            m_playerVelocity = -JUMP_FORCE2;
-        }
-        m_isJumping = false;
-    }
+    // 敌人
 
-    newPlayerRect.moveTop(newPlayerRect.top() + m_playerVelocity);
+    for (size_t i = 0; i < m_enemies.size(); ) {
+        enemy* e = m_enemies[i];
 
-    if(m_isRMove) {
-        newPlayerRect.moveLeft(newPlayerRect.left() + m_playerHorizon);
-        if (m_isAttacking) {
-            m_attackRect.moveLeft(m_attackRect.left() + m_playerHorizon);
-        }
-    }
-    if(m_isLMove) {
-        newPlayerRect.moveLeft(newPlayerRect.left() - m_playerHorizon);
-        if (m_isAttacking) {
-            m_attackRect.moveLeft(m_attackRect.left() - m_playerHorizon);
-        }
-    }
-
-    if (m_isAttacking) {
-        variabletime--;
-        if (variabletime <= 0) {
-            m_isAttacking = false;
-            m_attackRect = QRect(0, 0, 0, 0);
-        }
-    }
-    if(is_skill_1)
-    {
-        m_playerVelocity=0;
-        time1--;
-        if(time1<0)
-        {
-            is_skill_1=false;
-        }
-        else{
-            if(direction==1)
-            {
-                newPlayerRect.moveRight(newPlayerRect.right() + 20);
+        if (e->is_dead) {
+            // 1/5 概率生成掉落物
+            if (rand() % 5 == 0) {
+                Drop drop;
+                drop.pos = QPoint(e->m_player.center().x(), e->m_player.center().y());
+                drop.type = rand() % 2;
+                drop.value = (drop.type == 0) ? 20 : 15;
+                drop.lifetime = 600;
+                drop.frame = 0;
+                drop.pickupDelay = 30;
+                m_drops.push_back(drop);
             }
-            if(direction==2)
-            {
-                newPlayerRect.moveLeft(newPlayerRect.left() - 20);
-            }
+
+            delete e;
+            m_enemies.erase(m_enemies.begin() + i);
+        }
+
+        else {
+            e->move(m_obstacles);
+            e->trace(player);
+            e->e_attack(player);
+            e->is_attacked(player);
+            e->m_drawRect = e->m_player;
+            i++;
         }
     }
-    for(const auto &obstacle : m_obstacles)
-    {
-        NormalCollision normal;
-        normal.m_Collision(m_player,newPlayerRect, obstacle, m_playerVelocity,
-                           m_jumptime,  m_isJumping);
-    }
 
-    for(const auto &obstacle : m_bound)
-    {
-        BounceCollision bounce;
-        bounce.m_Collision(m_player,newPlayerRect, obstacle, m_playerVelocity,
-                           m_jumptime,  m_isJumping);
-    }
 
-    if (newPlayerRect.left() < 0) {
-        newPlayerRect.moveLeft(0);
-    }
-
-    m_player = newPlayerRect;
+    // 镜头跟随
 
     int screenCenter = GAME_WIDTH / 2;
-    int playerCenterX = m_player.center().x();
+    int playerCenterX = player.m_player.center().x();
     int dif = playerCenterX - (m_cameraX + screenCenter);
 
-    if (dif > GAME_WIDTH / 6) {
-
+    if (dif > GAME_WIDTH / 6)
         m_cameraX = playerCenterX - (screenCenter + GAME_WIDTH / 6);
-    }
-    else if (dif < -GAME_WIDTH / 6) {
+    else if (dif < -GAME_WIDTH / 6)
         m_cameraX = playerCenterX - (screenCenter - GAME_WIDTH / 6);
+    //左边界
+    if (m_cameraX < 0)
+        m_cameraX = 0;
+    //右边界
+    if (m_cameraX > 2400 - GAME_WIDTH)
+        m_cameraX = 2400 - GAME_WIDTH;
+
+    // 掉落物更新
+    for (size_t i = 0; i < m_drops.size(); ) {
+        Drop& d = m_drops[i];
+        d.lifetime--;
+        d.frame++;
+        if (d.pickupDelay > 0) d.pickupDelay--;
+
+        QRect dropRect(d.pos.x() - 10, d.pos.y() - 10, 20, 20);
+        if (d.pickupDelay <= 0 && dropRect.intersects(player.m_player)) {
+            if (d.type == 0)
+                player.hp = qMin(player.hp + d.value, 100);
+            else
+                player.mp = qMin(player.mp + d.value, 100.0f);
+            m_drops.erase(m_drops.begin() + i);
+        }
+        else if (d.lifetime <= 0) {
+            m_drops.erase(m_drops.begin() + i);
+        }
+        else {
+            i++;
+        }
     }
 
-    if (m_cameraX < 0) m_cameraX = 0;
     update();
 }
 
 void Game::resetGame()
 {
-    m_player = QRect(100, GAME_HEIGHT - GROUND_HEIGHT - PLAYER_HEIGHT,
-                     PLAYER_WIDTH, PLAYER_HEIGHT);
-    m_playerVelocity = 0;
-    m_jumptime = 0;
-    m_isJumping = false;
-    m_isRMove = false;
-    m_isLMove = false;
 
-    m_isAttacking = false;
-    m_attackRect = QRect(0, 0, 0, 0);
-
-    m_gameOver = false;
-    direction = 1;
-
+    for (enemy* e : m_enemies) {
+        delete e;
+    }
+    m_enemies.clear();
+    m_drops.clear();
     m_obstacles.clear();
-    m_bound.clear();
-    creatobstacle();
+    creat();
     m_cameraX = 0;
+    player.direction=1;
+    player.hp = 100;
+    player.mp = 100;
+    player.m_player.moveTo(100, GAME_HEIGHT - 50 - player.PLAYER_HEIGHT);
+
     update();
 }
 
-void Game::creatobstacle()
+void Game::creat()
 {
+    //障碍物
+    QRect obstacle1(400,380, 150, 40);
+    QRect obstacle2(800,380, 150, 40);
+    QRect obstacle3(1200,380, 150, 40);
+    QRect ground(0, 550, 2400, 50);
 
-    QRect obstacle1(600, 400, 150, 25);
-    QRect ground1(0, 550, 600, 50);
-    QRect ground2(600, 550, 600, 50);
-    QRect ground3(1200, 550, 600, 50);
-
-    m_obstacles.push_back(ground1);
-    m_obstacles.push_back(ground2);
-    m_obstacles.push_back(ground3);
+    m_obstacles.push_back(ground);
     m_obstacles.push_back(obstacle1);
+    m_obstacles.push_back(obstacle2);
+    m_obstacles.push_back(obstacle3);
+    //敌人出生点
+    m_enemySpawnPoints.clear();
+
+    m_enemySpawnPoints.push_back(QPoint(600, 300));
+    m_enemySpawnPoints.push_back(QPoint(800, 300));
+    m_enemySpawnPoints.push_back(QPoint(1000, 300));
+    m_enemySpawnPoints.push_back(QPoint(1200, 300));
+    m_enemySpawnPoints.push_back(QPoint(1400, 300));
 
 
+
+    //生成敌人
+    for (const QPoint& pos : m_enemySpawnPoints) {
+        enemy* e = new enemy();
+        e->m_player.moveTo(pos.x(), pos.y());
+        m_enemies.push_back(e);
+    }
 }
