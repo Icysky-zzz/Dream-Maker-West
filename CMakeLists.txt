@@ -9,7 +9,6 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ========== 这里修复：加入 Multimedia 模块 ==========
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Multimedia)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Multimedia)
 
@@ -22,6 +21,7 @@ set(PROJECT_SOURCES
         individual.h
         individual.cpp
         enemy.cpp
+        boss.cpp
         paint.cpp
 
         player.cpp
@@ -46,7 +46,6 @@ else()
     endif()
 endif()
 
-# ========== 这里修复：链接 Multimedia ==========
 target_link_libraries(untitled PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::Multimedia
@@ -70,7 +69,6 @@ install(TARGETS untitled
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-# 自动拷贝 resources 目录到构建目录
 add_custom_command(TARGET untitled POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/resources"

@@ -1,5 +1,21 @@
 #include "individual.h"
-#include "collision.h"
+#include <QMediaPlayer>
+#include <QAudioOutput>
+#include <cstdlib>
+
+// 攻击音效
+static QMediaPlayer* attackSound() {
+    static QMediaPlayer* player = nullptr;
+    static QAudioOutput* output = nullptr;
+    if (!player) {
+        output = new QAudioOutput();
+        output->setVolume(1);
+        player = new QMediaPlayer();
+        player->setAudioOutput(output);
+        player->setSource(QUrl::fromLocalFile("resources/audio/attack.mp3"));
+    }
+    return player;
+}
 
 enemy::enemy()
 {
@@ -9,112 +25,118 @@ enemy::enemy()
     attacked_time = 60;
     is_dead = false;
     hp=100;
+    // 静态缓存
+    static bool s_loaded = false;
+    static int s_frameWidth, s_frameHeight, s_attackFrameCount;
+    static QPixmap s_attackSheet;
+    static QVector<QPixmap> s_attackFrames;
+    static QVector<QPixmap> s_walkFrames;
+    static int s_walkFrameCount = 4;
 
+    if (!s_loaded) {
+        s_frameWidth = 750;
+        s_frameHeight = 368;
+        s_attackFrameCount = 13;
 
-    attackSheet.load("resources/enemy/e_attack1.png");
-    frameWidth = 750;
-    frameHeight = 368;
-    attackFrameCount = 13;
+        s_attackSheet.load("resources/enemy/e_attack1.png");
+        s_attackFrames.clear();
+        for (int i = 0; i < s_attackFrameCount; i++) {
+            QRect rect(i * s_frameWidth, 0, s_frameWidth, s_frameHeight);
+            s_attackFrames.push_back(
+                s_attackSheet.copy(rect).scaled(
+                    750 * 0.35, 368 * 0.35,
+                    Qt::KeepAspectRatio, Qt::SmoothTransformation
+                )
+            );
+        }
+
+        QPixmap walkSheet("resources/enemy/enemy_walk.png");
+        int walkFrameW = walkSheet.width() / s_walkFrameCount;
+        int walkFrameH = walkSheet.height();
+        s_walkFrames.clear();
+        for (int i = 0; i < s_walkFrameCount; i++) {
+            QRect rect(i * walkFrameW, 0, walkFrameW, walkFrameH);
+            s_walkFrames.push_back(
+                walkSheet.copy(rect).scaled(
+                    walkFrameH * 0.24 * 3 / 4,
+                    walkFrameH * 0.24,
+                    Qt::IgnoreAspectRatio, Qt::SmoothTransformation
+                )
+            );
+        }
+        s_loaded = true;
+    }
+
+    // 攻击2
+    static QVector<QPixmap> s_attack2Frames;
+    static int s_attack2FrameCount = 10;
+    if (s_attack2Frames.isEmpty()) {
+        QPixmap atk2Sheet("resources/enemy/enemy_attack2.png");
+        int atk2FW = atk2Sheet.width() / s_attack2FrameCount;
+        int atk2FH = atk2Sheet.height();
+        for (int i = 0; i < s_attack2FrameCount; i++) {
+            s_attack2Frames.push_back(
+                atk2Sheet.copy(i * atk2FW, 0, atk2FW, atk2FH)
+                    .scaledToHeight(130, Qt::SmoothTransformation)
+            );
+        }
+    }
+
+    attackSheet = s_attackSheet;
+    frameWidth = s_frameWidth;
+    frameHeight = s_frameHeight;
+    attackFrameCount = s_attackFrameCount;
+    attackFrames = s_attackFrames;
+    walkFrames = s_walkFrames;
+    walkFrameCount = s_walkFrameCount;
+
     attackIndex = 0;
     attackTimer = 0;
     attackSpeed = 3;
     isAttackingAnim = false;
 
-    attackFrames.clear();
-    for (int i = 0; i < attackFrameCount; i++) {
-        QRect rect(i * frameWidth, 0, frameWidth, frameHeight);
-        attackFrames.push_back(
-            attackSheet.copy(rect).scaled(
-                750 * 0.3,
-                368 * 0.3,
-                Qt::KeepAspectRatio,
-                Qt::SmoothTransformation
-                )
-            );
-    }
+    attack2Frames = s_attack2Frames;
+    attack2FrameCount = s_attack2FrameCount;
+    attack2Index = 0;
+    attack2Timer = 0;
+    attack2Speed = 3;
+    m_attackType = 1;
+
+    walkIndex = 0;
+    walkTimer = 0;
 }
 
-void enemy::move(const std::vector<QRect> m_obstacles)
+void enemy::move(const std::vector<QRect>& m_obstacles)
 {
-    QRect newPlayerRect = m_player;
+    // 利用基类处理
+    individual::move(m_obstacles);
 
-    //垂直速度
-    if (is_skill_1)
-    {
-        m_playerVelocity = 0;
-    }
-    else
-    {
-        m_playerVelocity += GRAVITY;
-    }
-    //防止超出左屏幕
-    if (newPlayerRect.left() < 0) {
-        newPlayerRect.moveLeft(0);
-    }
-    if (newPlayerRect.right() > 2400) {
-        newPlayerRect.moveRight(2400);
-    }
-
-    //跳&二段跳
-    if (m_isJumping) {
-        if (m_jumptime == 1) {
-            m_playerVelocity = -JUMP_FORCE1;
-        }
-        if (m_jumptime == 2) {
-            m_playerVelocity = -JUMP_FORCE2;
-        }
-        m_isJumping = false;
-    }
-
-    //垂直移动
-    newPlayerRect.moveTop(newPlayerRect.top() + m_playerVelocity);
-    //水平移动&攻击方块移动
-    if(m_isRMove) {
-        newPlayerRect.moveLeft(newPlayerRect.left() + m_playerHorizon);
-        if (m_isAttacking) {
-            m_attackRect.moveLeft(m_attackRect.left() + m_playerHorizon);
-        }
-    }
-    if(m_isLMove) {
-        newPlayerRect.moveLeft(newPlayerRect.left() - m_playerHorizon);
-        if (m_isAttacking) {
-            m_attackRect.moveLeft(m_attackRect.left() - m_playerHorizon);
-        }
-    }
-
-    //攻击设置
-    int playerMiddleY = m_player.top() + (m_player.height() - attackHeight) / 2;
-
-    if (direction == 1) {
-        m_attackRect = QRect(m_player.right(), playerMiddleY, attackWidth, attackHeight);
-    } else {
-        m_attackRect = QRect(m_player.left()-attackWidth, playerMiddleY, attackWidth, attackHeight);
-    }
-
-    //障碍物碰撞
-    for(const auto &obstacle : m_obstacles)
-    {
-        NormalCollision normal;
-        normal.m_Collision(m_player,newPlayerRect, obstacle, m_playerVelocity,
-                           m_jumptime,  m_isJumping);
-    }
     if (isAttackingAnim) {
-        attackTimer++;
-        if (attackTimer >= attackSpeed) {
-            attackTimer = 0;
-            attackIndex++;
+        int& idx = (m_attackType == 2) ? attack2Index : attackIndex;
+        int& tmr = (m_attackType == 2) ? attack2Timer : attackTimer;
+        int spd = (m_attackType == 2) ? attack2Speed : attackSpeed;
+        int cnt = (m_attackType == 2) ? attack2FrameCount : attackFrameCount;
 
-            if (attackIndex >= attackFrameCount) {
-                attackIndex = 0;        // 重置帧
-                isAttackingAnim = false;// 关闭攻击动画
-                m_isAttacking = false;  // 关闭攻击状态
+        tmr++;
+        if (tmr >= spd) {
+            tmr = 0;
+            idx++;
+            if (idx >= cnt) {
+                idx = 0;
+                isAttackingAnim = false;
+                m_isAttacking = false;
             }
         }
     }
+
+    // 行走动画
+    if (!isAttackingAnim && !m_attacked && (m_isRMove || m_isLMove)) {
+        advanceFrame(walkTimer, walkSpeed, walkIndex, walkFrameCount);
+    } else {
+        walkIndex = 0;
+        walkTimer = 0;
+    }
     m_drawRect = m_player;
-
-    m_player = newPlayerRect;
-
 }
 
 void enemy::e_attack(individual &Me)
@@ -127,6 +149,7 @@ void enemy::e_attack(individual &Me)
     {
         if (rest_time == 0 && !Me.m_attacked) {
 
+            m_attackType = (rand() % 2) + 1;  // 随机1/2选择攻击方式
             m_isAttacking = true;
             Me.m_attacked=true;
             Me.once_attacked=true;
@@ -134,6 +157,7 @@ void enemy::e_attack(individual &Me)
             rest_time = 200;
             if (Me.hp > 0) {
                 Me.hp -= 3;
+                playPlayerAttackedSound();
             }
         }
     }
@@ -142,7 +166,7 @@ void enemy::e_attack(individual &Me)
     }
 
     if (m_isAttacking) {
-        isAttackingAnim = true;  // 攻击开始 → 开启动画
+        isAttackingAnim = true; 
 
         attack();
     }
@@ -150,34 +174,62 @@ void enemy::e_attack(individual &Me)
 
 void enemy::is_attacked(individual &Me)
 {
-    // 玩家技能1冲刺碰撞伤害
-    if (Me.is_skill_1 && Me.m_player.intersects(m_player) && !once_attacked)
+
+    if (!Me.m_isAttacking && !Me.is_skill_1 && !Me.is_skill_2) {
+        lastHitStage = 0;
+    }
+
+    if (Me.is_skill_1 && Me.m_player.intersects(m_player))
     {
+        if (lastHitStage == -1) goto knockback;
+        lastHitStage = -1;
+        attackSound()->play();
         m_attacked = true;
-        once_attacked = true;
         m_isAttacking = false;
+        attacked_time = 30;
         hp -= 8;
+        m_playerVelocity = -3;
+        knockbackDir = (Me.m_player.x() > m_player.x()) ? -1 : 1;
+        if (hp <= 0) {
+            hp = 0;
+            is_dead = true;
+        }
+    }
+    // 玩家技能2（击飞）
+    else if (Me.is_skill_2
+             && Me.m_attackRect.intersects(m_player) && lastHitStage != -2)
+    {
+        lastHitStage = -2;
+        m_attacked = true;
+        m_isAttacking = false;
+        attacked_time = 15;
+        hp -= 20;
+        m_playerVelocity = -20;
+        knockbackDir = 0;
         if (hp <= 0) {
             hp = 0;
             is_dead = true;
         }
     }
     // 玩家普攻
-    else if(Me.m_attackRect.intersects(m_player) && Me.m_isAttacking && !once_attacked)
+    else if(Me.m_attackRect.intersects(m_player) && Me.m_isAttacking)
     {
+        if (Me.m_attackStage == lastHitStage) goto knockback;
+        lastHitStage = Me.m_attackStage;
+        attackSound()->play();
         m_attacked = true;
-        once_attacked = true;
         m_isAttacking=false;
+        attacked_time = 30;
         hp -= 10;
+        m_playerVelocity = -4;   // 轻微击飞
+        knockbackDir = (Me.m_player.x() > m_player.x()) ? -1 : 1;
         if(hp <= 0) {
             hp = 0;
             is_dead = true;
         }
     }
-    if(!Me.m_isAttacking && !Me.is_skill_1)
-    {
-        once_attacked = false;
-    }
+
+knockback:
     if(m_attacked)
     {
         m_isAttacking=false;
@@ -188,17 +240,16 @@ void enemy::is_attacked(individual &Me)
             attacked_time = 10;
             knockbackDir = 0;
         }
-
         else
         {
-            m_player.moveLeft(m_player.left() + knockbackDir * knockbackPower);
+            m_player.moveLeft(m_player.left() + knockbackDir * 4);
         }
     }
 }
 
 void enemy::trace(individual &myplayer)
 {
-    // 只设置敌人自身被击退的方向，不再击退玩家
+
     if (myplayer.m_player.x() > m_player.x()) {
         knockbackDir = -1;
     } else {

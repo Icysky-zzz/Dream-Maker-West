@@ -3,3 +3,6 @@ build/
 .qtcreator/
 *.user
 *.autosave
+*.o
+*.exe
+deskpet.h

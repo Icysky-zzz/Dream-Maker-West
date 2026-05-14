@@ -5,6 +5,14 @@
 #include <QFont>
 #include <QtMath>
 
+// 水平翻转精灵图（方向向左时翻转）
+static QPixmap flipH(const QPixmap& src, int dir)
+{
+    if (dir == 2)
+        return src.transformed(QTransform().scale(-1, 1));
+    return src;
+}
+
 void Game::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event);
@@ -14,17 +22,9 @@ void Game::paintEvent(QPaintEvent *event)
 
 
     if(is_start_interface){
-        painter.fillRect(rect(), QColor(20,25,45));
-        painter.setPen(QColor(255,210,0));
-        painter.setFont(QFont("Microsoft YaHei",60,QFont::Bold));
-        painter.drawText(0,150,GAME_WIDTH,100,Qt::AlignCenter,"造梦西游");
+        painter.drawPixmap(0, 0, GAME_WIDTH, GAME_HEIGHT, initial_img);
         return;
     }
-
-    // 显示游戏内按钮
-    btnRestart->show();
-    btnShowAtkBox->show();
-
 
     //背景
     static QPixmap bg("resources/bg/background.png");
@@ -43,7 +43,7 @@ void Game::paintEvent(QPaintEvent *event)
     hpGrad.setColorAt(1, QColor(220, 40, 40));
     painter.setBrush(hpGrad);
     QRect hprect = QRect(77, 27, player.hp * 1.2, barH-4);
-    painter.drawRect(hprect); // 直角
+    painter.drawRect(hprect);
 
     // 血量数字
     painter.setPen(Qt::white);
@@ -54,7 +54,7 @@ void Game::paintEvent(QPaintEvent *event)
     painter.setPen(QPen(QColor(50,50,50), 2));
     painter.setBrush(QColor(30,30,30));
     QRect mpbar = QRect(75, 50, barW, barH);
-    painter.drawRect(mpbar); // 直角
+    painter.drawRect(mpbar);
 
     painter.setPen(Qt::NoPen);
     QLinearGradient mpGrad(mpbar.left(), 0, mpbar.right(), 0);
@@ -62,7 +62,7 @@ void Game::paintEvent(QPaintEvent *event)
     mpGrad.setColorAt(1, QColor(30, 120, 220));
     painter.setBrush(mpGrad);
     QRect mprect = QRect(77, 52, player.mp * 1.2, barH-4);
-    painter.drawRect(mprect); // 直角
+    painter.drawRect(mprect);
 
     // 蓝量数字
     painter.setPen(Qt::white);
@@ -70,8 +70,42 @@ void Game::paintEvent(QPaintEvent *event)
     painter.drawText(mpbar, Qt::AlignCenter, QString::number((int)player.mp) + "/100");
 
 
+    if (m_boss && !m_boss->is_dead) {
+        int bossBarW = 300, bossBarH = 22;
+        int bossBarX = (GAME_WIDTH - bossBarW) / 2;
+        int bossBarY = 12;
+
+        // 背景
+        painter.setPen(QPen(QColor(80, 40, 40), 2));
+        painter.setBrush(QColor(30, 10, 10));
+        painter.drawRect(bossBarX, bossBarY, bossBarW, bossBarH);
+
+        // 血条
+        painter.setPen(Qt::NoPen);
+        QLinearGradient bGrad(bossBarX, 0, bossBarX + bossBarW, 0);
+        bGrad.setColorAt(0, QColor(255, 60, 60));
+        bGrad.setColorAt(1, QColor(200, 20, 20));
+        painter.setBrush(bGrad);
+        int hpW = (bossBarW - 4) * m_boss->hp / m_boss->max_hp;
+        painter.drawRect(bossBarX + 2, bossBarY + 2, hpW, bossBarH - 4);
+
+        // Boss 
+        painter.setPen(QColor(255, 210, 0));
+        painter.setFont(QFont("Microsoft YaHei", 12, QFont::Bold));
+        painter.drawText(bossBarX + 8, bossBarY, bossBarW, bossBarH,
+                         Qt::AlignVCenter, "BOSS");
+
+        painter.setPen(Qt::white);
+        painter.setFont(QFont("Microsoft YaHei", 10, QFont::Bold));
+        QString hpText = QString::number(m_boss->hp) + "/" + QString::number(m_boss->max_hp);
+        painter.drawText(bossBarX, bossBarY, bossBarW - 8, bossBarH,
+                         Qt::AlignVCenter | Qt::AlignRight, hpText);
+    }
+
+
     for (enemy* e : m_enemies) {
         if (e->is_dead) continue;
+        if (e == m_boss) continue;  
 
         QRect drawevil = e->m_player.translated(-m_cameraX, 0);
 
@@ -91,10 +125,11 @@ void Game::paintEvent(QPaintEvent *event)
         painter.setBrush(QColor(230, 50, 50));
         painter.setPen(Qt::NoPen);
         QRect hpRect = barBg.adjusted(1,1,-1,-1);
-        hpRect.setWidth( (hpBarW-2) * e->hp / 100 );
+        int hpRatioMax = (e->max_hp > 0) ? e->max_hp : 100;
+        hpRect.setWidth( (hpBarW-2) * e->hp / hpRatioMax );
         painter.drawRect(hpRect);
 
-        // 敌人血量数字
+        // 敌人血量
         painter.setPen(Qt::white);
         painter.setFont(QFont("Microsoft YaHei", 7, QFont::Bold));
         painter.drawText(barBg, Qt::AlignCenter, QString::number(e->hp));
@@ -117,24 +152,17 @@ void Game::paintEvent(QPaintEvent *event)
     QRect role=QRect(0,0,75,75);
     painter.setPen(QPen(QColor(255, 210, 0), 3));
     painter.setBrush(QColor(40,40,40));
-    painter.drawRect(role.adjusted(-2,-2,2,2)); // 直角
+    painter.drawRect(role.adjusted(-2,-2,2,2)); 
     painter.drawPixmap(role, role_img);
 
     QRect drawPlayer = player.m_drawRect.translated(-m_cameraX, 0);
 
     //攻击动画
-    // 1. 被攻击
     if (player.m_attacked)
     {
-        QPixmap frame=hurt_img;
-        if (player.direction == 2) {
-            QTransform transform;
-            transform.scale(-1, 1);
-            frame= frame.transformed(transform);
-        }
-        painter.drawPixmap(drawPlayer, frame);
+        painter.drawPixmap(drawPlayer, flipH(hurt_img, player.direction));
     }
-    // 2. 攻击动画（一段/二段/三段）
+    // 2. 攻击动画
     else if(player.m_isAttacking)
     {
         // 选帧
@@ -157,106 +185,63 @@ void Game::paintEvent(QPaintEvent *event)
             h = 200; yOff = 5;
         }
         if (frames && !frames->isEmpty() && idx < frames->size()) {
-            QPixmap frame = (*frames)[idx].scaledToHeight(h, Qt::SmoothTransformation);
-            if(player.direction == 2)
-            {
-                QTransform transform;
-                transform.scale(-1, 1);
-                frame = frame.transformed(transform);
-            }
+            QPixmap frame = flipH((*frames)[idx], player.direction).scaledToHeight(h, Qt::SmoothTransformation);
             int sx = drawPlayer.center().x() - frame.width() / 2;
+            if (player.direction == 1) sx += 50;
+            else sx -= 50;
             painter.drawPixmap(sx, drawPlayer.bottom() - frame.height() + yOff, frame);
         }
+    }
+
+    else if (player.is_skill_2 && !player.skill2_frames.isEmpty())
+    {
+        int idx = qMin(player.skill2_index, player.skill2_frames.size() - 1);
+        QPixmap frame = flipH(player.skill2_frames[idx], player.direction).scaledToHeight(200, Qt::SmoothTransformation);
+        int sx = drawPlayer.center().x() - frame.width() / 2;
+        painter.drawPixmap(sx, drawPlayer.bottom() - frame.height() + 10, frame);
     }
 
     //其他动作（技能，移动，跳跃）
     else
     {
-        //方向向右
-        if (player.direction == 1)
-        {
-            if(player.is_skill_1){
-                painter.drawPixmap(drawPlayer.left()-50,drawPlayer.top(),200,80 ,m_playerPixmap_skill1);
-            }
-            else{
-                if(!player.check_onground(m_obstacles)){
-                    if (player.m_jumptime == 2 && !player.djump_frames.isEmpty()) {
-                        if (player.djump_anim_complete) {
-                            QPixmap frame = m_playerPixmap_jump6.scaledToHeight(120, Qt::SmoothTransformation);
-                            int sx = drawPlayer.center().x() - frame.width() / 2;
-                            painter.drawPixmap(sx, drawPlayer.bottom() - frame.height() + 25, frame);
-                        } else {
-                            QPixmap frame = player.djump_frames[player.djump_index].scaledToHeight(150, Qt::SmoothTransformation);
-                            int sx = drawPlayer.center().x() - frame.width() / 2;
-                            painter.drawPixmap(sx, drawPlayer.bottom() - frame.height() + 25, frame);
-                        }
-                    } else {
-                        painter.drawPixmap(drawPlayer, m_playerPixmap_jump);
-                    }
-                }
-                else{
-                    if(!player.m_isRMove){
-                        if (!player.stand_frames.isEmpty()) {
-                            QPixmap standFrame = player.stand_frames[player.stand_index].scaledToHeight(200, Qt::SmoothTransformation);
-                            int sx = drawPlayer.center().x() - standFrame.width() / 2;
-                            painter.drawPixmap(sx, drawPlayer.bottom() - standFrame.height() + 25, standFrame);
-                        }
-                    }
-                    else{
-                        if (!player.run_frames.isEmpty()) {
-                            QPixmap runFrame = player.run_frames[player.run_index].scaledToHeight(player.PLAYER_HEIGHT, Qt::SmoothTransformation);
-                            painter.drawPixmap(drawPlayer.left(), drawPlayer.bottom() - runFrame.height(), runFrame);
-                        }
-                    }
-                }
+        bool moving = (player.direction == 1) ? player.m_isRMove : player.m_isLMove;
+
+        if (player.is_skill_1) {
+            int xOff = (player.direction == 2) ? 170 : 50;
+            painter.drawPixmap(drawPlayer.left() - xOff, drawPlayer.top(), 200, 80,
+                               flipH(m_playerPixmap_skill1, player.direction));
+        }
+        else if (!player.check_onground(m_obstacles)) {
+            if (player.m_jumptime == 2 && !player.djump_frames.isEmpty()) {
+                const QPixmap& src = player.djump_anim_complete
+                    ? m_playerPixmap_jump6 : player.djump_frames[player.djump_index];
+                int tH = player.djump_anim_complete ? 120 : 150;
+                QPixmap frame = flipH(src, player.direction).scaledToHeight(tH, Qt::SmoothTransformation);
+                painter.drawPixmap(drawPlayer.center().x() - frame.width() / 2,
+                    drawPlayer.bottom() - frame.height() + 25, frame);
+            } else {
+                painter.drawPixmap(drawPlayer, flipH(m_playerPixmap_jump, player.direction));
             }
         }
-        //方向向左
-        else {
-            QTransform transform;
-            transform.scale(-1, 1);
-            if(player.is_skill_1){
-                QPixmap flipped = m_playerPixmap_skill1.transformed(transform);
-                painter.drawPixmap(drawPlayer.left()-170,drawPlayer.top(),200,80,flipped);
+        else if (!moving) {
+            if (!player.stand_frames.isEmpty()) {
+                QPixmap frame = flipH(player.stand_frames[player.stand_index], player.direction)
+                    .scaledToHeight(200, Qt::SmoothTransformation);
+                painter.drawPixmap(drawPlayer.center().x() - frame.width() / 2,
+                    drawPlayer.bottom() - frame.height() + 25, frame);
             }
-            else{
-                if(!player.check_onground(m_obstacles)){
-                    if (player.m_jumptime == 2 && !player.djump_frames.isEmpty()) {
-                        QPixmap frame;
-                        if (player.djump_anim_complete) {
-                            frame = m_playerPixmap_jump6.scaledToHeight(120, Qt::SmoothTransformation);
-                        } else {
-                            frame = player.djump_frames[player.djump_index].scaledToHeight(150, Qt::SmoothTransformation);
-                        }
-                        frame = frame.transformed(transform);
-                        int sx = drawPlayer.center().x() - frame.width() / 2;
-                        painter.drawPixmap(sx, drawPlayer.bottom() - frame.height() + 25, frame);
-                    } else {
-                        painter.drawPixmap(drawPlayer, m_playerPixmap_jump.transformed(transform));
-                    }
-                }
-                else{
-                    if(!player.m_isLMove){
-                        if (!player.stand_frames.isEmpty()) {
-                            QPixmap standFrame = player.stand_frames[player.stand_index].scaledToHeight(200, Qt::SmoothTransformation);
-                            standFrame = standFrame.transformed(transform);
-                            int sx = drawPlayer.center().x() - standFrame.width() / 2;
-                            painter.drawPixmap(sx, drawPlayer.bottom() - standFrame.height() + 25, standFrame);
-                        }
-                    }
-                    else{
-                        if (!player.run_frames.isEmpty()) {
-                            QPixmap frame = player.run_frames[player.run_index].scaledToHeight(player.PLAYER_HEIGHT, Qt::SmoothTransformation);
-                            frame = frame.transformed(transform);
-                            painter.drawPixmap(drawPlayer.right() - frame.width(), drawPlayer.bottom() - frame.height(), frame);
-                        }
-                    }
-                }
-            }
+        }
+        else if (!player.run_frames.isEmpty()) {
+            QPixmap frame = flipH(player.run_frames[player.run_index], player.direction)
+                .scaledToHeight(player.PLAYER_HEIGHT, Qt::SmoothTransformation);
+            if (player.direction == 2)
+                painter.drawPixmap(drawPlayer.right() - frame.width(), drawPlayer.bottom() - frame.height(), frame);
+            else
+                painter.drawPixmap(drawPlayer.left(), drawPlayer.bottom() - frame.height(), frame);
         }
     }
 
-    // 玩家攻击框（直角渐变）
+    // 玩家攻击框
     if (player.m_isAttacking && m_drawAttackBox)
     {
         QRect drawAttackRect = player.m_attackRect.translated(-m_cameraX, 0);
@@ -274,49 +259,54 @@ void Game::paintEvent(QPaintEvent *event)
 
         QRect drawevil = e->m_player.translated(-m_cameraX, 0);
         if (e->isAttackingAnim) {
-            QPixmap frame = e->attackFrames[e->attackIndex];
-
-            if (e->direction == 2) {
-                QTransform transform;
-                transform.scale(-1, 1);
-                frame = frame.transformed(transform);
+            QPixmap frame;
+            if (e->m_attackType == 2 && !e->attack2Frames.isEmpty()) {
+                frame = e->attack2Frames[e->attack2Index];
+            } else {
+                frame = e->attackFrames[e->attackIndex];
             }
 
-            painter.drawPixmap(
-                e->m_player.x()-120 - m_cameraX,
-                e->m_player.y()+10,
-                frame
+            frame = flipH(frame, e->direction);
+
+            if (e == m_boss) {
+                int sx = drawevil.center().x() - frame.width() / 2;
+                painter.drawPixmap(sx, drawevil.bottom() - frame.height(), frame);
+            } else {
+                painter.drawPixmap(
+                    e->m_player.x()-90 - m_cameraX,
+                    e->m_player.y()-10,
+                    frame
                 );
+            }
         }
         else if (e->m_attacked)
         {
-            QPixmap frame=evil_hurt_img;
-            if (e->direction == 2) {
-                QTransform transform;
-                transform.scale(-1, 1);
-                frame= frame.transformed(transform);
+            QPixmap frame;
+            if (e == m_boss) {
+                frame = flipH(static_cast<Boss*>(e)->bossAttackedPixmap, e->direction);
+                int sx = drawevil.center().x() - frame.width() / 2;
+                painter.drawPixmap(sx, drawevil.bottom() - frame.height(), frame);
+            } else {
+                frame = flipH(evil_hurt_img, e->direction);
+                painter.drawPixmap(drawevil, frame);
             }
-            painter.drawPixmap(drawevil, frame);
         }
         else{
-            if (e->direction == 1) {
-                if (!e->m_isRMove)
-                    painter.drawPixmap(drawevil, m_evil_stand);
-                else
-                    painter.drawPixmap(drawevil, m_evil_run);
-
+            if (e == m_boss) {
+                Boss* boss = static_cast<Boss*>(e);
+                QPixmap frame = flipH(boss->walkFrames[boss->walkIndex], boss->direction);
+                int sx = drawevil.center().x() - frame.width() / 2;
+                painter.drawPixmap(sx, drawevil.bottom() - frame.height(), frame);
             }
             else {
-                QTransform transform;
-                transform.scale(-1, 1);
-                QPixmap flipped;
-
-                if (!e->m_isLMove)
-                    flipped = m_evil_stand.transformed(transform);
-                else
-                    flipped = m_evil_run.transformed(transform);
-
-                painter.drawPixmap(drawevil, flipped);
+                bool moving = (e->direction == 1) ? e->m_isRMove : e->m_isLMove;
+                if (!moving) {
+                    painter.drawPixmap(drawevil, flipH(m_evil_stand, e->direction));
+                } else {
+                    QPixmap frame = flipH(e->walkFrames[e->walkIndex], e->direction);
+                    int sx = drawevil.center().x() - frame.width() / 2;
+                    painter.drawPixmap(sx, drawevil.bottom() - frame.height(), frame);
+                }
             }
         }
 
@@ -331,12 +321,23 @@ void Game::paintEvent(QPaintEvent *event)
             painter.setPen(QPen(QColor(0, 200, 255), 3));
             painter.drawRect(drawAttackRect);
         }
+
+        if (e == m_boss && m_boss->m_isBeamActive)
+        {
+            QRect beamScreen = m_boss->m_beamRect.translated(-m_cameraX, 0);
+            QPixmap beamFrame = m_boss->m_beamSprite;
+            if (m_boss->m_beamDirection == -1) {
+                QTransform tf;
+                tf.scale(-1, 1);
+                beamFrame = beamFrame.transformed(tf);
+            }
+            painter.drawPixmap(beamScreen, beamFrame);
+        }
     }
 
-    // ===================== 掉落物 =====================
+    // 掉落物
     for (const auto& d : m_drops) {
-        float bob = qSin(d.frame * 0.1) * 5;
-        QPoint screenPos(d.pos.x() - m_cameraX, d.pos.y() + bob);
+        QPoint screenPos(d.pos.x() - m_cameraX, d.pos.y());
 
         int dropSize = 18;
         QRect dropRect(screenPos.x() - dropSize/2, screenPos.y() - dropSize/2, dropSize, dropSize);
@@ -367,17 +368,15 @@ void Game::paintEvent(QPaintEvent *event)
     int skillY = GAME_HEIGHT - skillSize - 20;
 
     QRect skillRect(skillX, skillY, skillSize, skillSize);
-    // 直角 + 实心背景 + 金色边框
+
     painter.setPen(QPen(QColor(255, 200, 0), 2));
     painter.setBrush(QColor(60, 60, 60));
     painter.drawRect(skillRect);
 
-    // 显示 U
+    // 技能1（U键）
     painter.setPen(Qt::white);
     painter.setFont(QFont("Microsoft YaHei", 24, QFont::Bold));
     painter.drawText(skillRect, Qt::AlignCenter, "U");
-
-    // 冷却阴影（从下往上减少，纯显示）
     if (player.skill_cd > 0)
     {
         qreal ratio = player.skill_cd / 60.0;
@@ -391,5 +390,71 @@ void Game::paintEvent(QPaintEvent *event)
             skillSize,
             coverHeight
             );
+    }
+
+    // 技能2（Y键）
+    int skill2X = skillX + skillSize + 10;
+    QRect skill2Rect(skill2X, skillY, skillSize, skillSize);
+    painter.setPen(QPen(QColor(100, 200, 255), 2));
+    painter.setBrush(QColor(60, 60, 60));
+    painter.drawRect(skill2Rect);
+
+    painter.setPen(Qt::white);
+    painter.setFont(QFont("Microsoft YaHei", 24, QFont::Bold));
+    painter.drawText(skill2Rect, Qt::AlignCenter, "Y");
+
+    if (player.skill_2_cd > 0) {
+        qreal ratio = player.skill_2_cd / 90.0;
+        int coverHeight = skillSize * ratio;
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(0, 0, 0, 180));
+        painter.drawRect(skill2X, skillY + skillSize - coverHeight, skillSize, coverHeight);
+    }
+
+    // 半透明遮罩
+    if (player.mp < 15) {
+        painter.setBrush(QColor(0, 0, 0, 120));
+        painter.setPen(Qt::NoPen);
+        painter.drawRect(skill2Rect);
+    }
+
+    //设置面板
+    if (m_showSettings) {
+        // 半透明遮罩
+        painter.fillRect(rect(), QColor(0, 0, 0, 160));
+
+        // 设置面板背景
+        int panelW = 280, panelH = 220;
+        int panelX = (GAME_WIDTH - panelW) / 2;
+        int panelY = (GAME_HEIGHT - panelH) / 2;
+
+        painter.setPen(QPen(QColor(255, 200, 30), 2));
+        painter.setBrush(QColor(40, 40, 50));
+        painter.drawRect(panelX, panelY, panelW, panelH);
+
+        // 标题
+        painter.setPen(QColor(255, 200, 30));
+        painter.setFont(QFont("Microsoft YaHei", 18, QFont::Bold));
+        painter.drawText(panelX, panelY + 15, panelW, 40, Qt::AlignCenter, "设  置");
+
+        // 分隔线
+        painter.setPen(QPen(QColor(100, 100, 100), 1));
+        painter.drawLine(panelX + 20, panelY + 55, panelX + panelW - 20, panelY + 55);
+    }
+
+    //游戏结束
+    if (m_isGameOver) {
+        painter.fillRect(rect(), QColor(0, 0, 0, 180));
+
+        QFont failFont("Microsoft YaHei", 64, QFont::Bold);
+        painter.setFont(failFont);
+        painter.setPen(QColor(220, 40, 40));
+        painter.drawText(rect(), Qt::AlignCenter, "失  败");
+
+        QFont tipFont("Microsoft YaHei", 18);
+        painter.setFont(tipFont);
+        painter.setPen(QColor(200, 200, 200));
+        QRect tipRect(0, GAME_HEIGHT / 2 + 60, GAME_WIDTH, 40);
+        painter.drawText(tipRect, Qt::AlignCenter, "按任意键重新开始");
     }
 }
